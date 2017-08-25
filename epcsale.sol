@@ -1,4 +1,5 @@
 pragma solidity ^0.4.13;
+
 contract Math {
   function add(uint256 x, uint256 y) constant internal returns (uint256 z) {
     assert((z = x + y) >= x);
@@ -31,9 +32,9 @@ contract Token {
 /*  ERC 20 token */
 contract ERC20 is Token {
 
-  function name() public constant returns (string name) { name; }
-  function symbol() public constant returns (string symbol) { symbol; }
-  function decimals() public constant returns (uint8 decimals) { decimals; }
+  function name() public constant returns (string) { name; }
+  function symbol() public constant returns (string) { symbol; }
+  function decimals() public constant returns (uint8) { decimals; }
 
   function transfer(address _to, uint256 _value) returns (bool success) {
     if (balances[msg.sender] >= _value && _value > 0) {
@@ -107,9 +108,9 @@ contract EPCToken is ERC20, Math, owned {
 
   // constructor
   function EPCToken(
-    string _name,
-    string _symbol,
-    string _version
+   string _name,
+   string _symbol,
+   string _version
   )
   {
     name = _name;
@@ -117,17 +118,18 @@ contract EPCToken is ERC20, Math, owned {
     version = _version;
   }
 
+  /*
+   * mint token
+   */
   function mintToken(address target, uint256 mintedAmount) onlyOwner {
     balances[target] += mintedAmount;
     totalSupply += mintedAmount;
     MintToken(target, mintedAmount);
   }
 
-  function reward(address target, uint256 amount) onlyOwner {
-    balances[target] += amount;
-    Reward(target, amount);
-  }
-
+  /*
+   * burn the tokens, cant never get back
+   */
   function burn(uint256 amount) returns (bool success) {
     require(balances[msg.sender] >= amount);
     balances[msg.sender] -= amount;
@@ -136,6 +138,18 @@ contract EPCToken is ERC20, Math, owned {
     return true;
   }
 
+  /*
+   * reward token
+   */
+  function reward(address target, uint256 amount) onlyOwner {
+    balances[target] += amount;
+    Reward(target, amount);
+  }
+
+  /*
+   * kill the contract from the blockchain
+   * and send the balance to the owner
+   */
   function kill() onlyOwner {
     selfdestruct(owner);
   }
@@ -145,12 +159,13 @@ contract EPCSale is Math, owned {
   EPCToken public epc;
   uint256 public constant decimals = 18;
   // crowdsale parameters
-  bool public isFinalized;              // switched to true in operational state
+  bool public isFinalized;  // switched to true in operational state
   uint256 public fundingStartBlock;
   uint256 public fundingEndBlock;
   uint256 public funded;
-  uint256 public constant totalCap = 250 * (10**6) * 10**decimals;   // 250m epc
+  uint256 public constant totalCap = 250 * (10**6) * 10**decimals; // 250m epc
 
+  // constructor
   function EPCSale(
    EPCToken _epc,
    uint256 _fundingStartBlock,
@@ -163,6 +178,9 @@ contract EPCSale is Math, owned {
     fundingEndBlock = _fundingEndBlock;
   }
 
+  /*
+   * crowdsale
+   */
   function crowdSale() payable {
     require(!isFinalized);
     assert(block.number >= fundingStartBlock);
@@ -174,35 +192,73 @@ contract EPCSale is Math, owned {
     assert(epc.transfer(msg.sender, tokens));
   }
 
+  /*
+   * caculate the crowdsale rate per eth
+   */
   function exchangeRate() constant returns(uint256) {
     if (block.number<=fundingStartBlock+43200) return 10000; // early price
     if (block.number<=fundingStartBlock+2*43200) return 8000; // crowdsale price
     return 7000; // default price
   }
 
+  /*
+   * unit test for crowdsale exchange rate
+   */
   function testExchangeRate(uint blockNumber) constant returns(uint256) {
     if (blockNumber <= fundingStartBlock+43200) return 10000; // early price
     if (blockNumber <= fundingStartBlock+2*43200) return 8000; // crowdsale price
     return 7000; // default price
   }
 
+  /*
+   * unit test for calculate funded amount
+   */
+  function testFunded(uint256 amount) constant returns(uint256) {
+    uint256 tokens = mul(amount, exchangeRate());
+    return add(funded, tokens);
+  }
+
+  /*
+   * unamed function for crowdsale
+   */
   function () payable {
     crowdSale();
   }
 
-  function withdrawal() onlyOwner{
+  /*
+   * withrawal the crowd eth
+   */
+  function withdrawal() onlyOwner {
     msg.sender.transfer(this.balance);
   }
 
-  function stop() onlyOwner{
+  /*
+   * stop the crowdsale
+   */
+  function stop() onlyOwner {
     isFinalized = true;
   }
 
-  function start() onlyOwner{
+  /*
+   * start the crowdsale
+   */
+  function start() onlyOwner {
     isFinalized = false;
   }
 
+  /*
+   * retrieve tokens from the contract
+   */
+  function retrieveTokens(uint256 amount) onlyOwner {
+    assert(epc.transfer(owner, amount));
+  }
+
+  /*
+   * kill the contract from the blockchain
+   * and retrieve the tokens and balance to the owner
+   */
   function kill() onlyOwner {
+    epc.transfer(owner, epc.balanceOf(this));
     selfdestruct(owner);
   }
 }
