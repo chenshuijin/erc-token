@@ -94,6 +94,23 @@ contract owned {
   }
 }
 
+contract admin {
+  address public administrator;
+
+  function admin() public {
+    administrator = msg.sender;
+  }
+
+  modifier onlyAdmin {
+    require(msg.sender == administrator);
+    _;
+  }
+
+  function transferAdmin(address newAdmin) public onlyAdmin {
+    administrator = newAdmin;
+  }
+}
+
 contract EPCToken is ERC20, Math, owned {
   // metadata
   string public name;
@@ -108,10 +125,10 @@ contract EPCToken is ERC20, Math, owned {
 
   // constructor
   function EPCToken(
-   string _name,
-   string _symbol,
-   string _version
-  ) public {
+		    string _name,
+		    string _symbol,
+		    string _version
+		    ) public {
     name = _name;
     symbol = _symbol;
     version = _version;
@@ -166,11 +183,11 @@ contract EPCSale is Math, owned {
 
   // constructor
   function EPCSale(
-   EPCToken _epc,
-   uint256 _fundingStartBlock,
-   uint256 _fundingEndBlock
-  )
-  public {
+		   EPCToken _epc,
+		   uint256 _fundingStartBlock,
+		   uint256 _fundingEndBlock
+		   )
+    public {
     isFinalized = false; //controls pre through crowdsale state
     epc = EPCToken(_epc);
     fundingStartBlock = _fundingStartBlock;
@@ -259,5 +276,79 @@ contract EPCSale is Math, owned {
   function kill() public onlyOwner {
     epc.transfer(owner, epc.balanceOf(this));
     selfdestruct(owner);
+  }
+}
+
+contract Fund {
+  function isBlocked(address _owner) public constant returns (bool ok);
+  function unBlock(address target) public constant returns (bool ok);
+  function depositReward(address target, uint256 amount, uint256 blockedAmt, uint deblock) public;
+  function withdrawRewardFor(address target, uint256 amount) public;
+  struct mgt {
+    uint256 amt;
+    uint256 blockedAmt;
+    uint deblock;
+  }
+}
+
+contract EPCFund is owned, Fund, Math, admin {
+  mapping (address => mgt) private mgtinfo;
+  EPCToken public epc;
+  function EPCFund (
+		    EPCToken _epc
+		    )
+    public {
+    epc = EPCToken(_epc);
+  }
+
+  function() public payable {
+  }
+
+  function isBlocked(address target) public constant returns (bool ok) {
+    if (mgtinfo[target].blockedAmt <= 0) { return false; }
+    if (mgtinfo[target].deblock < block.number) { return false; }
+    ok = true;
+  }
+
+  function depositReward(address target, uint256 amount, uint256 blockedAmt, uint deblock) public onlyOwner {
+    require(amount > 0);
+    require(blockedAmt >= 0);
+    require(deblock >= 0);
+    mgtinfo[target] = mgt(amount, blockedAmt, deblock);
+    epc.transfer(this, amount);
+  }
+
+  function withdrawRewardFor(address target, uint256 amount) public {
+    uint256 amt = mgtinfo[msg.sender].amt;
+    uint256 blockedAmt = mgtinfo[msg.sender].blockedAmt;
+    uint deblock = mgtinfo[msg.sender].deblock;
+    require(amt >= amount);
+
+    if (blockedAmt > 0) {
+      require(deblock < block.number);
+      require(blockedAmt >= sub(amt, amount));
+    }
+    uint256 namt = amt - amount;
+    mgtinfo[msg.sender] = mgt(namt, blockedAmt, deblock);
+    epc.transfer(target, amount);
+  }
+
+  function unblock(address target) public onlyAdmin returns (bool ok) {
+    mgtinfo[target].blockedAmt = 0;
+    mgtinfo[target].deblock = 0;
+    ok = true;
+  }
+
+  function freeze(uint256 amount, uint deblock) public returns (bool ok) {
+    require(deblock >= 0);
+    mgtinfo[msg.sender] = mgt(amount, amount, deblock);
+    epc.transfer(this, amount);
+    ok = true;
+  }
+
+  function query(address target) public constant returns (uint256 amount, uint256 blockedAmount, uint deblock) {
+    amount = mgtinfo[target].amt;
+    blockedAmount = mgtinfo[target].blockedAmt;
+    deblock = mgtinfo[target].deblock;
   }
 }
