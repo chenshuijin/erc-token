@@ -281,7 +281,7 @@ contract EPCSale is Math, owned {
 
 contract Fund {
   function isBlocked(address _owner) public constant returns (bool ok);
-  function unBlock(address target) public constant returns (bool ok);
+  function unBlock(address target) public returns (bool ok);
   function depositReward(address target, uint256 amount, uint256 blockedAmt, uint deblock) public;
   function withdrawRewardFor(address target, uint256 amount) public;
   struct mgt {
@@ -333,7 +333,7 @@ contract EPCFund is owned, Fund, Math, admin {
     epc.transfer(target, amount);
   }
 
-  function unblock(address target) public onlyAdmin returns (bool ok) {
+  function unBlock(address target) public onlyAdmin returns (bool ok) {
     mgtinfo[target].blockedAmt = 0;
     mgtinfo[target].deblock = 0;
     ok = true;
