@@ -94,7 +94,7 @@ contract owned {
   }
 }
 
-contract admin {
+contract admin is owned {
   address public administrator;
 
   function admin() public {
@@ -106,7 +106,7 @@ contract admin {
     _;
   }
 
-  function transferAdmin(address newAdmin) public onlyAdmin {
+  function transferAdmin(address newAdmin) public onlyOwner {
     administrator = newAdmin;
   }
 }
@@ -282,73 +282,82 @@ contract EPCSale is Math, owned {
 contract Fund {
   function isBlocked(address _owner) public constant returns (bool ok);
   function unBlock(address target) public returns (bool ok);
-  function depositReward(address target, uint256 amount, uint256 blockedAmt, uint deblock) public;
-  function withdrawRewardFor(address target, uint256 amount) public;
+  function depositReward(address target, uint256 amount, uint deblock) public;
+  function withdrawRewardFor(address target) public;
   struct mgt {
     uint256 amt;
-    uint256 blockedAmt;
     uint deblock;
   }
 }
 
-contract EPCFund is owned, Fund, Math, admin {
+contract EPCFund is Fund, Math, admin {
   mapping (address => mgt) private mgtinfo;
   EPCToken public epc;
-  function EPCFund (
-		    EPCToken _epc
-		    )
-    public {
+  function EPCFund (EPCToken _epc) public {
     epc = EPCToken(_epc);
   }
+
+  event DepositReward(address target, uint256 amount, uint deblock);
+  event WithdrawRewardFor(address target);
 
   function() public payable {
   }
 
   function isBlocked(address target) public constant returns (bool ok) {
-    if (mgtinfo[target].blockedAmt <= 0) { return false; }
     if (mgtinfo[target].deblock < block.number) { return false; }
     ok = true;
   }
 
-  function depositReward(address target, uint256 amount, uint256 blockedAmt, uint deblock) public onlyOwner {
+  function depositReward(address target, uint256 amount, uint deblock) public onlyAdmin {
     require(amount > 0);
-    require(blockedAmt >= 0);
     require(deblock >= 0);
-    mgtinfo[target] = mgt(amount, blockedAmt, deblock);
-    epc.transfer(this, amount);
+    mgtinfo[target] = mgt(amount, deblock);
+    DepositReward(target, amount, deblock);
   }
 
-  function withdrawRewardFor(address target, uint256 amount) public {
+  function withdrawRewardFor(address target) public {
     uint256 amt = mgtinfo[msg.sender].amt;
-    uint256 blockedAmt = mgtinfo[msg.sender].blockedAmt;
-    uint deblock = mgtinfo[msg.sender].deblock;
-    require(amt >= amount);
+    require(mgtinfo[msg.sender].deblock < block.number);
+    mgtinfo[msg.sender].amt = 0;
+    require(epc.transfer(target, amt));
+    WithdrawRewardFor(target);
+  }
 
-    if (blockedAmt > 0) {
-      require(deblock < block.number);
-      require(blockedAmt >= sub(amt, amount));
-    }
-    uint256 namt = amt - amount;
-    mgtinfo[msg.sender] = mgt(namt, blockedAmt, deblock);
-    epc.transfer(target, amount);
+  function withdraw() public {
+    uint256 amt = mgtinfo[msg.sender].amt;
+    require(mgtinfo[msg.sender].deblock < block.number);
+    mgtinfo[msg.sender].amt = 0;
+    require(epc.transfer(msg.sender, amt));
+    WithdrawRewardFor(msg.sender);
   }
 
   function unBlock(address target) public onlyAdmin returns (bool ok) {
-    mgtinfo[target].blockedAmt = 0;
     mgtinfo[target].deblock = 0;
     ok = true;
   }
 
-  function freeze(uint256 amount, uint deblock) public returns (bool ok) {
-    require(deblock >= 0);
-    mgtinfo[msg.sender] = mgt(amount, amount, deblock);
-    epc.transfer(this, amount);
-    ok = true;
+  function query(address target) public constant returns (uint256 amount, uint deblock) {
+    amount = mgtinfo[target].amt;
+    deblock = mgtinfo[target].deblock;
   }
 
-  function query(address target) public constant returns (uint256 amount, uint256 blockedAmount, uint deblock) {
-    amount = mgtinfo[target].amt;
-    blockedAmount = mgtinfo[target].blockedAmt;
-    deblock = mgtinfo[target].deblock;
+  function epcBalance() public constant returns (uint256) {
+      return epc.balanceOf(this);
+  }
+
+  /*
+   * retrieve tokens from the contract
+   */
+  function retrieveTokens(uint256 amount) public onlyAdmin {
+    require(epc.transfer(administrator, amount));
+  }
+
+  /*
+   * kill the contract from the blockchain
+   * and retrieve the tokens and balance to the owner
+   */
+  function kill() public onlyAdmin {
+    require(epc.transfer(administrator, epc.balanceOf(this)));
+    selfdestruct(administrator);
   }
 }
